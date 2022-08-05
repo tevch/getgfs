@@ -280,7 +280,8 @@ class Forecast:
                 val_2 = float(re.findall(r"\:(.*?)]", inpt)[0])
                 if coord == "lon":
                     val_1 = val_1 % 360
-                    val_2 = val_2 % 360
+                    #val_2 = val_2 % 360
+                    val_2 = val_2 % 360 if val_2 < 360 else val_2
                 val_min = self.value_to_index(coord, min(val_1, val_2))
                 val_max = self.value_to_index(coord, max(val_1, val_2))
                 ind = "[%s:%s]" % (val_min, val_max)
@@ -297,10 +298,20 @@ class Forecast:
                 ind = "[%s]" % self.value_to_index(coord, inpt)
         else:
             if coord == "lon":
-                inpt = inpt % 360
+                #inpt = inpt % 360
+                inpt = inpt % 360 if inpt < 360 else inpt
             ind = "[%s]" % self.value_to_index(coord, inpt)
 
         return ind
+
+    def neg_coords_to_zero(self, lat, lon):
+        return lat, lon % 360
+
+    def zero_coords_to_neg(self, lat, lon):
+        if lon > 180:
+            lon = -360 + lon
+
+        return lat, lon
 
     def value_to_index(self, coord, value):
         """Turns a coordinate value into the index in the forecast array
@@ -354,6 +365,25 @@ class Forecast:
         possibles = sorted(possibles, key=lambda tup: tup[2])
         return possibles
 
+    def interpolate_windprofile(self, ugrdprs_data, vgrdprs_data, ugrd10m_data, vgrd10m_data, hgtsfc_data, hgtprs_data):
+        u_wind = list(ugrdprs_data.flatten()) + list(
+            ugrd10m_data.flatten()
+        )
+        v_wind = list(vgrdprs_data.flatten()) + list(
+            vgrd10m_data.flatten()
+        )
+
+        # at the altitudes we are concerned with the geopotential height and altitude are within 0.5km of eachother
+        alts = list(hgtprs_data.flatten()) + list(
+            hgtsfc_data.flatten() + 10
+        )
+
+        return interp1d(
+            alts, u_wind, fill_value=(u_wind[-1], u_wind[-2]), bounds_error=False
+        ), interp1d(
+            alts, v_wind, fill_value=(v_wind[-1], v_wind[-2]), bounds_error=False
+        )
+
     def get_windprofile(self, date_time, lat, lon):
         """Finds the verticle wind profile for a location. I wrote this since it is what
         I require in another program. The U/V compoents of wind with sigma do not go down to
@@ -376,23 +406,16 @@ class Forecast:
             lon,
         )
 
-        u_wind = list(info.variables["ugrdprs"].data.flatten()) + list(
-            info.variables["ugrd10m"].data.flatten()
-        )
-        v_wind = list(info.variables["vgrdprs"].data.flatten()) + list(
-            info.variables["vgrd10m"].data.flatten()
-        )
+        ugrdprs_data = info.variables["ugrdprs"].data
+        ugrd10m_data = info.variables["ugrd10m"].data
+        vgrdprs_data = info.variables["vgrdprs"].data
+        vgrd10m_data = info.variables["vgrd10m"].data
 
         # at the altitudes we are concerned with the geopotential height and altitude are within 0.5km of eachother
-        alts = list(info.variables["hgtprs"].data.flatten()) + list(
-            info.variables["hgtsfc"].data.flatten() + 10
-        )
+        hgtprs_data = info.variables["hgtprs"].data
+        hgtsfc_data = info.variables["hgtsfc"].data
 
-        return interp1d(
-            alts, u_wind, fill_value=(u_wind[-1], u_wind[-2]), bounds_error=False
-        ), interp1d(
-            alts, v_wind, fill_value=(v_wind[-1], v_wind[-2]), bounds_error=False
-        )
+        return self.interpolate_windprofile(ugrdprs_data, vgrdprs_data, ugrd10m_data, vgrd10m_data, hgtsfc_data, hgtprs_data)
 
     def __str__(self):
         print(type(self))
